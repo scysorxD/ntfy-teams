@@ -1,0 +1,42 @@
+<Project>
+  <Target Name="BuildTeamsMsix" AfterTargets="Publish" Condition="'$(BuildMsix)' == 'true'">
+    <Error Condition="'$(RuntimeIdentifier)' != 'win-x64' and '$(RuntimeIdentifier)' != 'win-arm64'"
+           Text="Para generar el MSIX, publicá con -r win-x64 o -r win-arm64." />
+    <Error Condition="'$(SelfContained)' != 'true'" Text="Publicá con --self-contained true para generar el MSIX." />
+    <Error Condition="'$(MsixCertificateThumbprint)' != '' and '$(MsixPublisher)' == ''"
+           Text="Definí MsixPublisher con el Subject del certificado de firma." />
+    <Error Condition="'$(MsixCertificateThumbprint)' != '' and !$([System.Text.RegularExpressions.Regex]::IsMatch('$(MsixCertificateThumbprint)', '^[a-fA-F0-9]{40}$'))"
+           Text="MsixCertificateThumbprint debe ser una huella SHA-1 de 40 caracteres hexadecimales." />
+
+    <PropertyGroup>
+      <_MsixArch>$(RuntimeIdentifier.Substring(4))</_MsixArch>
+      <_MsixHostArch Condition="'$(PROCESSOR_ARCHITECTURE)' == 'ARM64'">arm64</_MsixHostArch>
+      <_MsixHostArch Condition="'$(_MsixHostArch)' == ''">x64</_MsixHostArch>
+      <_MsixOutput>$(MSBuildProjectDirectory)\artifacts</_MsixOutput>
+      <_MsixPackage>$(_MsixOutput)\TeamsNotificationPOC-$(_MsixArch).msix</_MsixPackage>
+      <_MsixManifest>$(PublishDir)\AppxManifest.xml</_MsixManifest>
+      <_MsixNamespaces>&lt;Namespace Prefix="p" Uri="http://schemas.microsoft.com/appx/manifest/foundation/windows10" /&gt;</_MsixNamespaces>
+    </PropertyGroup>
+    <ItemGroup>
+      <_MsixAsset Include="$(MSBuildThisFileDirectory)Assets\*.png" />
+      <_MsixMakeAppx Include="$(PkgMicrosoft_Windows_SDK_BuildTools)\bin\*\$(_MsixHostArch)\makeappx.exe" />
+    </ItemGroup>
+    <Error Condition="'@(_MsixMakeAppx)' == ''" Text="No se encontró MakeAppx en Microsoft.Windows.SDK.BuildTools." />
+
+    <Copy SourceFiles="$(MSBuildThisFileDirectory)AppxManifest.xml" DestinationFiles="$(_MsixManifest)" />
+    <Copy SourceFiles="@(_MsixAsset)" DestinationFolder="$(PublishDir)\Assets" />
+    <XmlPoke XmlInputPath="$(_MsixManifest)" Namespaces="$(_MsixNamespaces)"
+             Query="/p:Package/p:Identity/@ProcessorArchitecture" Value="$(_MsixArch)" />
+    <XmlPoke Condition="'$(MsixPublisher)' != ''" XmlInputPath="$(_MsixManifest)" Namespaces="$(_MsixNamespaces)"
+             Query="/p:Package/p:Identity/@Publisher" Value="$(MsixPublisher)" />
+    <MakeDir Directories="$(_MsixOutput)" />
+    <Exec Command="&quot;@(_MsixMakeAppx)&quot; pack /d &quot;$(PublishDir)\.&quot; /p &quot;$(_MsixPackage)&quot; /o"
+          StandardOutputImportance="low" />
+    <Exec Condition="'$(MsixCertificateThumbprint)' != ''"
+          Command="&quot;@(_MsixMakeAppx-&gt;'%(RootDir)%(Directory)signtool.exe')&quot; sign /fd SHA256 /sha1 $(MsixCertificateThumbprint) &quot;$(_MsixPackage)&quot;" />
+
+    <Message Condition="'$(MsixCertificateThumbprint)' == ''" Importance="high"
+             Text="MSIX sin firma. Para instalarlo, publicá con MsixCertificateThumbprint y MsixPublisher." />
+    <Message Importance="high" Text="$(_MsixPackage)" />
+  </Target>
+</Project>
